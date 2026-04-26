@@ -31,3 +31,17 @@ async def upload_file(file: UploadFile = File(...), target: str = Form(...)):
 @app.get("/download/")
 def download_model():
     return FileResponse("best_model.pkl", filename="best_model.pkl")
+
+from fastapi import Body
+import pandas as pd
+
+@app.post("/load_url/")
+async def load_url(data: dict = Body(...)):
+    url = data["url"]
+    target = data["target"]
+
+    df = pd.read_csv(url)
+
+    results = run_models(df, target)
+
+    return results

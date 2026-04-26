@@ -8,37 +8,44 @@
     <style>
         body {
             font-family: Arial;
-            padding: 30px;
             background: #f5f7fa;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
         }
 
         h2 {
-            color: #333;
+            margin-bottom: 10px;
         }
 
-        input {
-            padding: 8px;
+        input,
+        button {
+            padding: 10px;
             margin: 5px 0;
         }
 
         button {
-            padding: 10px 20px;
             background: #007bff;
             color: white;
             border: none;
             cursor: pointer;
-            margin-top: 10px;
-        }
-
-        button:hover {
-            background: #0056b3;
         }
 
         table {
-            margin-top: 20px;
+            width: 100%;
             border-collapse: collapse;
-            width: 60%;
-            background: white;
+            margin-top: 10px;
         }
 
         th,
@@ -54,34 +61,67 @@
         }
 
         .best {
-            background-color: #d4edda;
+            background: #d4edda;
             font-weight: bold;
         }
 
-        #explanation {
-            margin-top: 15px;
-            font-weight: bold;
-            color: #333;
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
         }
     </style>
 </head>
 
 <body>
 
-    <h2>🚀 AutoML Model Selector</h2>
+    <div class="container">
 
-    <input type="file" id="fileInput"><br>
-    <input type="text" id="target" placeholder="Enter target column"><br>
+        <div class="card">
+            <h2>🚀 AutoML Model Selector</h2>
 
-    <button onclick="upload()">Run Models</button>
-    <button onclick="downloadModel()">Download Best Model</button>
+            <input type="file" id="fileInput"><br>
+            <input type="text" id="target" placeholder="Enter target column"><br>
+            <input type="text" id="urlInput" placeholder="Paste dataset URL (optional)">
+            <br>
+            <button onclick="loadFromURL()">Load from URL</button>
+            <button onclick="upload()">Run Models</button>
+            <button onclick="downloadModel()">Download Best Model</button>
+        </div>
 
-    <h3>🏆 Results</h3>
-    <table id="table"></table>
+        <!-- Dataset Info -->
+        <div class="card">
+            <h3>📊 Dataset Analysis</h3>
+            <p id="analysis"></p>
+        </div>
 
-    <p id="explanation"></p>
+        <!-- Results -->
+        <div class="card">
+            <h3>🏆 Model Ranking</h3>
+            <table id="table"></table>
+            <p id="explanation"></p>
+        </div>
 
-    <canvas id="chart" width="400" height="200"></canvas>
+        <div class="grid">
+
+            <div class="card">
+                <h3>📈 Model Performance</h3>
+                <canvas id="chart"></canvas>
+            </div>
+
+            <div class="card">
+                <h3>🌟 Feature Importance</h3>
+                <canvas id="featureChart"></canvas>
+            </div>
+
+        </div>
+
+        <div class="card">
+            <h3>📉 Confusion Matrix</h3>
+            <canvas id="cmChart"></canvas>
+        </div>
+
+    </div>
 
     <script>
         async function upload() {
@@ -103,68 +143,182 @@
             });
 
             const data = await res.json();
+            processData(data);
+            console.log(data);
 
-            console.log("FULL DATA:", data);
+            const results = data.results;
 
-            let results;
+            // -------- Dataset Analysis --------
+            document.getElementById("analysis").textContent =
+                `Rows: ${data.analysis.rows}, Columns: ${data.analysis.columns}`;
 
-            if (Array.isArray(data)) {
-                results = data;
-            } else if (Array.isArray(data.results)) {
-                results = data.results;
-            } else if (data.results) {
-                results = [data.results];  // 🔥 convert object → array
-            } else {
-                results = [];
-            }
-            if (!results || results.length === 0) {
-                document.getElementById("table").innerHTML =
-                    "<tr><td>No results found</td></tr>";
-                return;
-            }
+            // -------- Table --------
             let table = "<tr><th>Rank</th><th>Model</th><th>Score</th></tr>";
-
-            let labels = [];
-            let values = [];
+            let labels = [], values = [];
 
             results.forEach((r, i) => {
-                const isBest = i === 0 ? "best" : "";
-                const score = r.accuracy !== undefined ? r.accuracy : r.r2_score;
-
-                table += `
-                    <tr class="${isBest}">
-                        <td>${i + 1}</td>
-                        <td>${r.model}</td>
-                        <td>${score}</td>
-                    </tr>
-                `;
+                const score = r.accuracy ?? r.r2_score;
+                table += `<tr class="${i === 0 ? 'best' : ''}">
+            <td>${i + 1}</td>
+            <td>${r.model}</td>
+            <td>${score}</td>
+        </tr>`;
 
                 labels.push(r.model);
                 values.push(score);
             });
 
             document.getElementById("table").innerHTML = table;
+            document.getElementById("explanation").textContent = data.explanation;
 
-            document.getElementById("explanation").textContent =
-                data.explanation || "";
-
-            if (window.myChart) window.myChart.destroy();
-
-            window.myChart = new Chart(document.getElementById("chart"), {
+            // -------- Performance Chart --------
+            if (window.chart && typeof window.chart.destroy === "function") {
+                window.chart.destroy();
+            }
+            window.chart = new Chart(document.getElementById("chart"), {
                 type: "bar",
                 data: {
                     labels: labels,
+                    datasets: [{ label: "Score", data: values }]
+                }
+            });
+
+            // -------- Feature Importance --------
+            if (data.feature_importance && data.feature_importance.length > 0) {
+                if (window.featureChart?.destroy) window.featureChart.destroy();
+
+                window.featureChart = new Chart(document.getElementById("featureChart"), {
+                    type: "bar",
+                    data: {
+                        labels: data.feature_importance.map(f => f.feature),
+                        datasets: [{
+                            label: "Importance",
+                            data: data.feature_importance.map(f => f.importance)
+                        }]
+                    }
+                });
+            }
+        
+
+        // -------- Confusion Matrix --------
+        if (data.confusion_matrix && data.confusion_matrix.length > 0) {
+            if (window.cmChart?.destroy) window.cmChart.destroy();
+
+            const cm = data.confusion_matrix;
+
+            window.cmChart = new Chart(document.getElementById("cmChart"), {
+                type: "bar",
+                data: {
+                    labels: ["True-0", "False-0", "False-1", "True-1"],
                     datasets: [{
-                        label: "Model Performance",
-                        data: values
+                        label: "Confusion Matrix",
+                        data: cm.flat()
                     }]
                 }
             });
+
+            console.log("CM:", data.confusion_matrix);
+            console.log("FI:", data.feature_importance);
         }
+}
 
         function downloadModel() {
             window.open("http://127.0.0.1:8000/download/");
         }
+        async function loadFromURL() {
+    const url = document.getElementById("urlInput").value;
+    const target = document.getElementById("target").value;
+
+    if (!url || !target) {
+        alert("Enter URL + target");
+        return;
+    }
+
+    const res = await fetch("http://127.0.0.1:8000/load_url/", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ url, target })
+    });
+
+    const data = await res.json();
+    processData(data);
+}
+function processData(data) {
+    console.log("DATA:", data);
+
+    const results = data.results;
+
+    // -------- Dataset Analysis --------
+    document.getElementById("analysis").textContent =
+        `Rows: ${data.analysis.rows}, Columns: ${data.analysis.columns}`;
+
+    // -------- Table --------
+    let table = "<tr><th>Rank</th><th>Model</th><th>Score</th></tr>";
+    let labels = [], values = [];
+
+    results.forEach((r, i) => {
+        const score = r.accuracy ?? r.r2_score;
+
+        table += `<tr class="${i === 0 ? 'best' : ''}">
+            <td>${i + 1}</td>
+            <td>${r.model}</td>
+            <td>${score}</td>
+        </tr>`;
+
+        labels.push(r.model);
+        values.push(score);
+    });
+
+    document.getElementById("table").innerHTML = table;
+    document.getElementById("explanation").textContent = data.explanation;
+
+    // -------- Performance Chart --------
+    if (window.chart?.destroy) window.chart.destroy();
+
+    window.chart = new Chart(document.getElementById("chart"), {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{ label: "Score", data: values }]
+        }
+    });
+
+    // -------- Feature Importance --------
+    if (data.feature_importance && data.feature_importance.length > 0) {
+        if (window.featureChart?.destroy) window.featureChart.destroy();
+
+        window.featureChart = new Chart(document.getElementById("featureChart"), {
+            type: "bar",
+            data: {
+                labels: data.feature_importance.map(f => f.feature),
+                datasets: [{
+                    label: "Importance",
+                    data: data.feature_importance.map(f => f.importance)
+                }]
+            }
+        });
+    }
+
+    // -------- Confusion Matrix --------
+    if (data.confusion_matrix && data.confusion_matrix.length > 0) {
+        if (window.cmChart?.destroy) window.cmChart.destroy();
+
+        const cm = data.confusion_matrix;
+
+        window.cmChart = new Chart(document.getElementById("cmChart"), {
+            type: "bar",
+            data: {
+                labels: ["0-0", "0-1", "1-0", "1-1"],
+                datasets: [{
+                    label: "Confusion Matrix",
+                    data: cm.flat()
+                }]
+            }
+        });
+    }
+}
     </script>
 
 </body>
