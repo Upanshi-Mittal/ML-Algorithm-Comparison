@@ -1,56 +1,85 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>AutoML Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
         body {
             font-family: Arial;
             padding: 30px;
             background: #f5f7fa;
         }
+
         h2 {
             color: #333;
         }
+
+        input {
+            padding: 8px;
+            margin: 5px 0;
+        }
+
         button {
             padding: 10px 20px;
             background: #007bff;
             color: white;
             border: none;
             cursor: pointer;
+            margin-top: 10px;
         }
+
+        button:hover {
+            background: #0056b3;
+        }
+
         table {
             margin-top: 20px;
             border-collapse: collapse;
             width: 60%;
             background: white;
         }
-        th, td {
+
+        th,
+        td {
             padding: 10px;
             border: 1px solid #ddd;
             text-align: center;
         }
+
         th {
             background: #007bff;
             color: white;
         }
+
         .best {
             background-color: #d4edda;
             font-weight: bold;
         }
+
+        #explanation {
+            margin-top: 15px;
+            font-weight: bold;
+            color: #333;
+        }
     </style>
 </head>
+
 <body>
 
     <h2>🚀 AutoML Model Selector</h2>
 
-    <input type="file" id="fileInput"><br><br>
-    <input type="text" id="target" placeholder="Enter target column"><br><br>
+    <input type="file" id="fileInput"><br>
+    <input type="text" id="target" placeholder="Enter target column"><br>
 
     <button onclick="upload()">Run Models</button>
+    <button onclick="downloadModel()">Download Best Model</button>
 
     <h3>🏆 Results</h3>
     <table id="table"></table>
+
+    <p id="explanation"></p>
 
     <canvas id="chart" width="400" height="200"></canvas>
 
@@ -74,27 +103,50 @@
             });
 
             const data = await res.json();
-            const results = data.results;
 
-            let table = "<tr><th>Rank</th><th>Model</th><th>Accuracy</th></tr>";
+            console.log("FULL DATA:", data);
+
+            let results;
+
+            if (Array.isArray(data)) {
+                results = data;
+            } else if (Array.isArray(data.results)) {
+                results = data.results;
+            } else if (data.results) {
+                results = [data.results];  // 🔥 convert object → array
+            } else {
+                results = [];
+            }
+            if (!results || results.length === 0) {
+                document.getElementById("table").innerHTML =
+                    "<tr><td>No results found</td></tr>";
+                return;
+            }
+            let table = "<tr><th>Rank</th><th>Model</th><th>Score</th></tr>";
 
             let labels = [];
             let values = [];
 
             results.forEach((r, i) => {
                 const isBest = i === 0 ? "best" : "";
+                const score = r.accuracy !== undefined ? r.accuracy : r.r2_score;
 
-                table += `<tr class="${isBest}">
-                    <td>${i+1}</td>
-                    <td>${r.model}</td>
-                    <td>${r.accuracy}</td>
-                </tr>`;
+                table += `
+                    <tr class="${isBest}">
+                        <td>${i + 1}</td>
+                        <td>${r.model}</td>
+                        <td>${score}</td>
+                    </tr>
+                `;
 
                 labels.push(r.model);
-                values.push(r.accuracy);
+                values.push(score);
             });
 
             document.getElementById("table").innerHTML = table;
+
+            document.getElementById("explanation").textContent =
+                data.explanation || "";
 
             if (window.myChart) window.myChart.destroy();
 
@@ -103,13 +155,18 @@
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: "Accuracy",
+                        label: "Model Performance",
                         data: values
                     }]
                 }
             });
         }
+
+        function downloadModel() {
+            window.open("http://127.0.0.1:8000/download/");
+        }
     </script>
 
 </body>
+
 </html>

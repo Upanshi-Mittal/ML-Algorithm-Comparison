@@ -2,10 +2,12 @@ from fastapi import FastAPI, UploadFile, File, Form
 import pandas as pd
 from model_runner import run_models
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all (for now)
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,5 +24,10 @@ async def upload_file(file: UploadFile = File(...), target: str = Form(...)):
 
     return {
         "target": target,
-        "results": results
+        **results 
     }
+
+
+@app.get("/download/")
+def download_model():
+    return FileResponse("best_model.pkl", filename="best_model.pkl")

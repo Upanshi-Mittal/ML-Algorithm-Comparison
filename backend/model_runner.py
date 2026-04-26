@@ -22,6 +22,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
 
+from sklearn.metrics import accuracy_score, r2_score
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
+import joblib
 
 def detect_problem(y):
     unique_vals = len(set(y))
@@ -53,36 +58,44 @@ def build_pipeline(X):
 
 
 def run_models(df, target):
+    from sklearn.preprocessing import LabelEncoder
+
     X = df.drop(columns=[target])
     y = df[target]
 
+    problem_type = detect_problem(y)
+
+    if problem_type == "classification":
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+
     preprocessor = build_pipeline(X)
 
-    # Train-test split (raw data for sklearn pipelines)
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
 
-    models = {
-        "Logistic Regression": LogisticRegression(max_iter=1000),
-        "Decision Tree": DecisionTreeClassifier(),
-        "Random Forest": RandomForestClassifier(),
-
-        "KNN": KNeighborsClassifier(),
-        "SVM": SVC(),
-        "Naive Bayes": GaussianNB(),
-
-        "Gradient Boosting": GradientBoostingClassifier(),
-        "Extra Trees": ExtraTreesClassifier(),
-        "AdaBoost": AdaBoostClassifier()
-    }
+    if problem_type == "classification":
+        models = {
+            "Random Forest": RandomForestClassifier(),
+            "SVM": SVC(),
+            "Gradient Boosting": GradientBoostingClassifier(),
+        }
+        metric_name = "accuracy"
+    else:
+        models = {
+            "Linear Regression": LinearRegression(),
+            "Decision Tree Regressor": DecisionTreeRegressor(),
+            "Random Forest Regressor": RandomForestRegressor(),
+        }
+        metric_name = "r2_score"
 
     results = []
+    trained_models = {}
 
-    # 1. Run sklearn models
     for name, model in models.items():
         try:
-            pipe = Pipeline(steps=[
+            pipe = Pipeline([
                 ("preprocessing", preprocessor),
                 ("model", model)
             ])
@@ -90,12 +103,17 @@ def run_models(df, target):
             pipe.fit(X_train, y_train)
             preds = pipe.predict(X_test)
 
-            acc = accuracy_score(y_test, preds)
+            if problem_type == "classification":
+                score = accuracy_score(y_test, preds)
+            else:
+                score = r2_score(y_test, preds)
 
             results.append({
                 "model": name,
-                "accuracy": round(acc, 4)
+                metric_name: round(score, 4)
             })
+
+            trained_models[name] = pipe
 
         except Exception as e:
             results.append({
@@ -103,29 +121,22 @@ def run_models(df, target):
                 "error": str(e)
             })
 
-    # 2. Run PyTorch ANN (separately)
-    try:
-        X_processed = preprocessor.fit_transform(X)
+    key = metric_name
+    results = sorted(results, key=lambda x: x.get(key, 0), reverse=True)
 
-        X_train_p, X_test_p, y_train_p, y_test_p = train_test_split(
-            X_processed, y, test_size=0.2, random_state=42
-        )
+    best_model_name = results[0]["model"]
+    best_model = trained_models.get(best_model_name)
 
-        ann_acc = train_ann(X_train_p, y_train_p, X_test_p, y_test_p)
+    if best_model:
+        joblib.dump(best_model, "best_model.pkl")
 
-        results.append({
-            "model": "PyTorch ANN",
-            "accuracy": ann_acc
-        })
+    explanation = f"{best_model_name} performed best because it handled the dataset patterns effectively."
 
-    except Exception as e:
-        results.append({
-            "model": "PyTorch ANN",
-            "error": str(e)
-        })
-
-    # Sort results
-    results = sorted(results, key=lambda x: x.get("accuracy", 0), reverse=True)
-
-    results = results[:5]
-    return results
+    print("FINAL RESULTS:", results)
+    print("TRAINED MODELS:", trained_models.keys())
+    return {
+        "type": problem_type,
+        "best_model": best_model_name,
+        "explanation": explanation,
+        "results": results[:5]
+    }
