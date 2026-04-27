@@ -8,7 +8,15 @@ from sklearn.metrics import (
     accuracy_score, r2_score,
     classification_report, confusion_matrix
 )
+from sklearn.ensemble import (
+    RandomForestClassifier, GradientBoostingClassifier,
+    RandomForestRegressor, ExtraTreesClassifier, ExtraTreesRegressor,
+    AdaBoostClassifier
+)
 
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
 # Models
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
@@ -82,10 +90,17 @@ def run_models(df, target):
     # -------- Model Selection --------
     if problem_type == "classification":
         models = {
-            "Random Forest": RandomForestClassifier(),
-            "SVM": SVC(),
-            "Gradient Boosting": GradientBoostingClassifier(),
-        }
+        "Logistic Regression": LogisticRegression(max_iter=1000),
+        "Decision Tree": DecisionTreeClassifier(),
+        "Random Forest": RandomForestClassifier(),
+        "Gradient Boosting": GradientBoostingClassifier(),
+        "Extra Trees": ExtraTreesClassifier(),
+        "AdaBoost": AdaBoostClassifier(),
+        "KNN": KNeighborsClassifier(),
+        "SVM": SVC(),
+        "Naive Bayes": GaussianNB(),
+    }
+
         metric_name = "accuracy"
     else:
         models = {
@@ -149,32 +164,33 @@ def run_models(df, target):
 
     best_model_name = valid_results[0]["model"]
     best_model = trained_models.get(best_model_name)
+    fi_model = None
 
+    for name, model in trained_models.items():
+        if hasattr(model.named_steps["model"], "feature_importances_"):
+            fi_model = model
+            break
+    cleaned = clean_for_json(results)
+    feature_importance = []
+
+    if fi_model:
+        model = fi_model.named_steps["model"]
+        preprocessor = fi_model.named_steps["preprocessing"]
+
+        feature_names = preprocessor.get_feature_names_out()
+        importances = model.feature_importances_
+
+        fi = list(zip(feature_names, importances))
+        fi = sorted(fi, key=lambda x: x[1], reverse=True)[:10]
+
+        feature_importance = [
+            {"feature": f[0], "importance": round(float(f[1]), 4)}
+            for f in fi
+        ]
     # -------- Save Best Model --------
     if best_model:
         joblib.dump(best_model, "best_model.pkl")
 
-    feature_importance = None
-
-    try:
-        model = best_model.named_steps["model"]
-
-        if hasattr(model, "feature_importances_"):
-            importances = model.feature_importances_
-
-            # get transformed feature names
-            feature_names = best_model.named_steps["preprocessing"].get_feature_names_out()
-
-            feature_importance = [
-                {
-                    "feature": str(f),
-                    "importance": float(i)
-                }
-                for f, i in zip(feature_names, importances)
-            ]
-
-    except Exception as e:
-        print("Feature importance error:", e)
 
     # -------- Classification Metrics --------
     report = None
@@ -194,14 +210,29 @@ def run_models(df, target):
             else:
                 explanation = f"{best_model_name} performed best by fitting the numerical relationships in the dataset efficiently."
 
-    # -------- Final Output --------
-    return {
-        "type": problem_type,
-        "best_model": best_model_name,
-        "explanation": explanation,
-        "results": valid_results[:5],
-        "analysis": analysis,
-        "feature_importance": feature_importance,
-        "classification_report": report,
-        "confusion_matrix": conf_matrix
-    }
+    return clean_for_json({
+    "type": problem_type,
+    "best_model": best_model_name,
+    "explanation": explanation,
+    "results": valid_results[:5],
+    "analysis": analysis,
+    "feature_importance": feature_importance,
+    "classification_report": report,
+    "confusion_matrix": conf_matrix,
+    "preview": df.head(100).to_dict(orient="records"),
+    "columns": list(df.columns)
+})
+
+import math
+
+def clean_for_json(obj):
+    if isinstance(obj, dict):
+        return {k: clean_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_for_json(v) for v in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return 0
+        return obj
+    else:
+        return obj

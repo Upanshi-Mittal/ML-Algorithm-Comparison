@@ -70,6 +70,13 @@
             grid-template-columns: 1fr 1fr;
             gap: 20px;
         }
+
+        
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
     </style>
 </head>
 
@@ -118,12 +125,71 @@
 
         <div class="card">
             <h3>📉 Confusion Matrix</h3>
-            <canvas id="cmChart"></canvas>
+            <div id="cmChart"></div>
+        </div>
+
+    </div>
+    <div class="card">
+        <h3>📊 Data Visualization</h3>
+
+        <label>X Axis:</label>
+        <select id="xCol"></select>
+
+        <label>Y Axis:</label>
+        <select id="yCol"></select>
+
+        <label>Chart Type:</label>
+        <select id="chartType">
+            <option value="bar">Bar</option>
+            <option value="line">Line</option>
+            <option value="scatter">Scatter</option>
+        </select>
+
+        <br><br>
+        <button onclick="visualize()">Visualize</button>
+
+        <div style="width:600px; height:350px; margin:auto;">
+            <canvas id="vizChart"></canvas>
         </div>
 
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix"></script>
+
     <script>
+        let globalData = null;
+
+
+
+
+
+
+
+        function downloadModel() {
+            window.open("http://127.0.0.1:8000/download/");
+        }
+        async function loadFromURL() {
+            const url = document.getElementById("urlInput").value;
+            const target = document.getElementById("target").value;
+
+            if (!url || !target) {
+                alert("Enter URL + target");
+                return;
+            }
+
+            const res = await fetch("http://127.0.0.1:8000/load_url/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ url, target })
+            });
+
+            const data = await res.json();
+            processData(data);
+        }
+
+
         async function upload() {
             const file = document.getElementById("fileInput").files[0];
             const target = document.getElementById("target").value;
@@ -144,8 +210,9 @@
 
             const data = await res.json();
             processData(data);
-            console.log(data);
-
+        }
+        function processData(data) {
+            console.log("DATA:", data);
             const results = data.results;
 
             // -------- Dataset Analysis --------
@@ -158,6 +225,7 @@
 
             results.forEach((r, i) => {
                 const score = r.accuracy ?? r.r2_score;
+
                 table += `<tr class="${i === 0 ? 'best' : ''}">
             <td>${i + 1}</td>
             <td>${r.model}</td>
@@ -172,9 +240,8 @@
             document.getElementById("explanation").textContent = data.explanation;
 
             // -------- Performance Chart --------
-            if (window.chart && typeof window.chart.destroy === "function") {
-                window.chart.destroy();
-            }
+            if (window.chart?.destroy) window.chart.destroy();
+
             window.chart = new Chart(document.getElementById("chart"), {
                 type: "bar",
                 data: {
@@ -197,128 +264,157 @@
                         }]
                     }
                 });
+                console.log("FI:", data.feature_importance);
+
+                // -------- Confusion Matrix --------
+                if (data.confusion_matrix && data.confusion_matrix.length > 0) {
+                    if (window.cmChart?.destroy) window.cmChart.destroy();
+
+                    const cm = data.confusion_matrix;
+
+                    window.cmChart = new Chart(document.getElementById("cmChart"), {
+                        type: "matrix",
+                        data: {
+                            datasets: [{
+                                label: "Confusion Matrix",
+                                data: [
+                                    { x: 0, y: 0, v: cm[0][0] },
+                                    { x: 1, y: 0, v: cm[0][1] },
+                                    { x: 0, y: 1, v: cm[1][0] },
+                                    { x: 1, y: 1, v: cm[1][1] },
+                                ],
+                                backgroundColor(ctx) {
+                                    const value = ctx.raw.v;
+                                    return `rgba(0, 123, 255, ${value / 100})`;
+                                },
+                                width: ({ chart }) => (chart.chartArea || {}).width / 2 - 1,
+                                height: ({ chart }) => (chart.chartArea || {}).height / 2 - 1,
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                x: { type: 'linear', position: 'top', ticks: { stepSize: 1 } },
+                                y: { ticks: { stepSize: 1 } }
+                            }
+                        }
+
+                    });
+
+                    console.log("CM:", data.confusion_matrix);
+                    console.log("FI:", data.feature_importance);
+                }
             }
-        
-
-        // -------- Confusion Matrix --------
-        if (data.confusion_matrix && data.confusion_matrix.length > 0) {
-            if (window.cmChart?.destroy) window.cmChart.destroy();
-
             const cm = data.confusion_matrix;
 
-            window.cmChart = new Chart(document.getElementById("cmChart"), {
-                type: "bar",
-                data: {
-                    labels: ["True-0", "False-0", "False-1", "True-1"],
-                    datasets: [{
-                        label: "Confusion Matrix",
-                        data: cm.flat()
-                    }]
+            let html = "<table style='margin:auto;'>";
+            for (let i = 0; i < cm.length; i++) {
+                html += "<tr>";
+                for (let j = 0; j < cm[i].length; j++) {
+                    const val = cm[i][j];
+                    const maxVal = Math.max(...cm.flat());
+                    const color = `rgba(0,123,255,${val / 100})`;
+
+                    html += `<td style="
+            width:80px;
+            height:80px;
+            text-align:center;
+            background:${color};
+            font-weight:bold;
+        ">${val}</td>`;
                 }
+                html += "</tr>";
+            }
+            html += "</table>";
+            const xSelect = document.getElementById("xCol");
+            const ySelect = document.getElementById("yCol");
+
+            xSelect.innerHTML = "";
+            ySelect.innerHTML = "";
+
+            data.columns.forEach(col => {
+                xSelect.innerHTML += `<option value="${col}">${col}</option>`;
+                ySelect.innerHTML += `<option value="${col}">${col}</option>`;
             });
 
-            console.log("CM:", data.confusion_matrix);
-            console.log("FI:", data.feature_importance);
+            globalData = data.preview;
+            document.getElementById("cmChart").innerHTML = html;
         }
-}
 
-        function downloadModel() {
-            window.open("http://127.0.0.1:8000/download/");
-        }
-        async function loadFromURL() {
-    const url = document.getElementById("urlInput").value;
-    const target = document.getElementById("target").value;
-
-    if (!url || !target) {
-        alert("Enter URL + target");
-        return;
-    }
-
-    const res = await fetch("http://127.0.0.1:8000/load_url/", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ url, target })
-    });
-
-    const data = await res.json();
-    processData(data);
-}
-function processData(data) {
-    console.log("DATA:", data);
-
-    const results = data.results;
-
-    // -------- Dataset Analysis --------
-    document.getElementById("analysis").textContent =
-        `Rows: ${data.analysis.rows}, Columns: ${data.analysis.columns}`;
-
-    // -------- Table --------
-    let table = "<tr><th>Rank</th><th>Model</th><th>Score</th></tr>";
-    let labels = [], values = [];
-
-    results.forEach((r, i) => {
-        const score = r.accuracy ?? r.r2_score;
-
-        table += `<tr class="${i === 0 ? 'best' : ''}">
-            <td>${i + 1}</td>
-            <td>${r.model}</td>
-            <td>${score}</td>
-        </tr>`;
-
-        labels.push(r.model);
-        values.push(score);
-    });
-
-    document.getElementById("table").innerHTML = table;
-    document.getElementById("explanation").textContent = data.explanation;
-
-    // -------- Performance Chart --------
-    if (window.chart?.destroy) window.chart.destroy();
-
-    window.chart = new Chart(document.getElementById("chart"), {
-        type: "bar",
-        data: {
-            labels: labels,
-            datasets: [{ label: "Score", data: values }]
-        }
-    });
-
-    // -------- Feature Importance --------
-    if (data.feature_importance && data.feature_importance.length > 0) {
-        if (window.featureChart?.destroy) window.featureChart.destroy();
-
-        window.featureChart = new Chart(document.getElementById("featureChart"), {
-            type: "bar",
-            data: {
-                labels: data.feature_importance.map(f => f.feature),
-                datasets: [{
-                    label: "Importance",
-                    data: data.feature_importance.map(f => f.importance)
-                }]
+        function visualize() {
+            if (!globalData) {
+                alert("Run model first!");
+                return;
             }
-        });
-    }
 
-    // -------- Confusion Matrix --------
-    if (data.confusion_matrix && data.confusion_matrix.length > 0) {
-        if (window.cmChart?.destroy) window.cmChart.destroy();
+            const xCol = document.getElementById("xCol").value;
+            const yCol = document.getElementById("yCol").value;
+            const type = document.getElementById("chartType").value;
 
-        const cm = data.confusion_matrix;
+            if (window.vizChartObj) window.vizChartObj.destroy();
 
-        window.cmChart = new Chart(document.getElementById("cmChart"), {
-            type: "bar",
-            data: {
-                labels: ["0-0", "0-1", "1-0", "1-1"],
-                datasets: [{
-                    label: "Confusion Matrix",
-                    data: cm.flat()
-                }]
+            const ctx = document.getElementById("vizChart").getContext("2d"); // 🔥 FIX
+
+            // -------- SCATTER --------
+            if (type === "scatter") {
+
+                const scatterData = globalData
+                    .map(row => ({
+                        x: parseFloat(row[xCol]),
+                        y: parseFloat(row[yCol])
+                    }))
+                    .filter(p => !isNaN(p.x) && !isNaN(p.y));
+
+                if (scatterData.length === 0) {
+                    alert("Only numeric columns allowed for scatter!");
+                    return;
+                }
+
+                window.vizChartObj = new Chart(ctx, {
+                    type: "scatter",
+                    data: {
+                        datasets: [{
+                            label: `${yCol} vs ${xCol}`,
+                            data: scatterData,
+                            pointRadius: 5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false
+                    }
+                });
             }
-        });
-    }
-}
+
+            // -------- BAR / LINE --------
+            else {
+                const grouped = {};
+
+                globalData.forEach(row => {
+                    const key = row[xCol];
+                    const val = parseFloat(row[yCol]) || 0;
+
+                    if (!grouped[key]) grouped[key] = [];
+                    grouped[key].push(val);
+                });
+
+                const labels = Object.keys(grouped);
+                const values = labels.map(k =>
+                    grouped[k].reduce((a, b) => a + b, 0) / grouped[k].length
+                );
+
+                window.vizChartObj = new Chart(ctx, {
+                    type: type,
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `${yCol} by ${xCol}`,
+                            data: values
+                        }]
+                    }
+                });
+            }
+        }
+
     </script>
 
 </body>

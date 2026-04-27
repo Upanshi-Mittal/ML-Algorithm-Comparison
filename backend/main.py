@@ -4,6 +4,9 @@ from model_runner import run_models
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from fastapi import Body
+import pandas as pd
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -32,16 +35,25 @@ async def upload_file(file: UploadFile = File(...), target: str = Form(...)):
 def download_model():
     return FileResponse("best_model.pkl", filename="best_model.pkl")
 
-from fastapi import Body
-import pandas as pd
 
 @app.post("/load_url/")
 async def load_url(data: dict = Body(...)):
-    url = data["url"]
-    target = data["target"]
+    try:
+        url = data.get("url")
+        target = data.get("target")
 
-    df = pd.read_csv(url)
+        print("URL:", url)
 
-    results = run_models(df, target)
+        df = pd.read_csv(url)
 
-    return results
+        print("Columns:", df.columns)
+
+        if target not in df.columns:
+            return {"error": f"Target '{target}' not found"}
+
+        results = run_models(df, target)
+        return results
+
+    except Exception as e:
+        print("ERROR:", str(e))   
+        return {"error": str(e)}
